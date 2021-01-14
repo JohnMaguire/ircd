@@ -3,6 +3,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
+#[derive(Debug)]
 struct IrcMessage {
     prefix: Option<String>,
     command: String,
@@ -61,6 +62,7 @@ impl fmt::Display for IrcMessage {
     }
 }
 
+#[allow(non_camel_case_types)]
 pub enum Reply {
     RPL_WELCOME(String, String, String),
     RPL_YOURHOST(String, String, String),
@@ -140,6 +142,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("{}", welcome.to_irc_message().unwrap());
 
+    // ===================================================================== //
+
     // listen for connection
     let loopback = Ipv4Addr::new(127, 0, 0, 1);
     let socket = SocketAddrV4::new(loopback, 6667);
@@ -155,11 +159,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = reader.read_line(&mut input);
     println!("{:?} says: {}", addr, input);
 
+    // translate to internal irc message struct
     let irc_message = IrcMessage::try_from(input)?;
-    println!("{}", irc_message);
-
     let command = irc_message.to_command().unwrap();
-    println!("{:?}", command);
+    println!("{:?} -> {:?}", irc_message, command);
 
     Ok(())
 }
