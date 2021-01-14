@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::fmt;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
 #[derive(Debug)]
@@ -47,6 +47,23 @@ impl TryFrom<String> for IrcMessage {
             command: command,
             command_parameters: command_parameters,
         })
+    }
+}
+
+impl From<IrcMessage> for String {
+    fn from(irc_message: IrcMessage) -> String {
+        let mut message = "".to_owned();
+        message.push_str(
+            irc_message
+                .prefix
+                .map_or("".to_string(), |s| format!(":{} ", s))
+                .as_str(),
+        );
+        message.push_str(format!("{} ", irc_message.command).as_str());
+        message.push_str(irc_message.command_parameters.join(" ").as_str());
+        message.push_str("\r\n");
+
+        message
     }
 }
 
@@ -134,35 +151,18 @@ impl IrcMessage {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // test messages to verify structs are working
-    let message = IrcMessage {
-        prefix: Some("irc.darkscience.net".to_owned()),
-        command: "PRIVMSG".to_owned(),
-        command_parameters: vec!["whoami".to_owned(), ":Welcome".to_owned()],
-    };
-    println!("{}", message);
-
-    let welcome = Reply::RPL_WELCOME(
-        "whoami".to_owned(),
-        "whoami".to_owned(),
-        "johnmaguire.me".to_owned(),
-    );
-    println!("{}", welcome.to_irc_message().unwrap());
-
-    // ===================================================================== //
-
     // listen for connection
     let loopback = Ipv4Addr::new(127, 0, 0, 1);
     let socket = SocketAddrV4::new(loopback, 6667);
     let listener = TcpListener::bind(socket)?;
     println!("Listening on 127.0.0.1:6667");
 
-    let (tcp_stream, addr) = listener.accept()?; // blocks until connection
+    let (mut tcp_stream, addr) = listener.accept()?; // blocks until connection
     println!("Connection from {:?}", addr);
 
     // read input
     let mut input = String::new();
-    let mut reader = BufReader::new(tcp_stream);
+    let mut reader = BufReader::new(&tcp_stream);
     let _ = reader.read_line(&mut input);
     println!("{:?} says: {}", addr, input);
 
@@ -170,6 +170,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let irc_message = IrcMessage::try_from(input)?;
     let command = irc_message.to_command().unwrap();
     println!("{:?} -> {:?}", irc_message, command);
+
+    // send a welcome message
+    let reply = Reply::RPL_WELCOME("nick".to_owned(), "user".to_owned(), "ident".to_owned())
+        .to_irc_message()
+        .unwrap();
+    tcp_stream.write(String::from(reply).as_bytes());
 
     Ok(())
 }
