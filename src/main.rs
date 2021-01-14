@@ -19,19 +19,24 @@ impl TryFrom<String> for IrcMessage {
         let mut vec = s.trim_end_matches("\r\n").split(" ").collect::<Vec<&str>>();
 
         // check for a prefix in the message
-        let maybe_prefix: &str = vec.first().unwrap();
-        let prefix: Option<String> = match maybe_prefix.chars().next().unwrap() {
-            ':' => Some(maybe_prefix.to_owned()),
-            _ => None,
+        let prefix = {
+            let maybe_prefix: &str = vec.first().unwrap();
+            match maybe_prefix.chars().next().unwrap() {
+                ':' => {
+                    vec.drain(..1);
+                    Some(maybe_prefix.to_owned())
+                }
+                _ => None,
+            }
         };
 
-        if prefix.is_some() {
-            vec.drain(..1);
-        }
-
         // command is required
-        let command = vec.first().get_or_insert(&"").to_string();
-        vec.drain(..1);
+        let command = vec
+            .drain(..1)
+            .as_slice()
+            .first()
+            .get_or_insert(&"")
+            .to_string();
 
         // any remaining parameters are command parameters
         // FIXME: this should look for trailing and separate it into its own parameter
@@ -52,10 +57,12 @@ impl fmt::Display for IrcMessage {
             _ => "".to_owned(),
         };
 
-        let con = &self.command_parameters;
-        let command_parameters = match con.as_slice() {
-            [] => "".to_owned(),
-            _ => format!(" {}", con.join(" ")),
+        let command_parameters = {
+            let con = &self.command_parameters;
+            match con.as_slice() {
+                [] => "".to_owned(),
+                _ => format!(" {}", con.join(" ")),
+            }
         };
 
         write!(f, "{}{}{}", prefix, &self.command, command_parameters)
@@ -70,13 +77,13 @@ pub enum Reply {
     RPL_MYINFO(String, String, String),
 }
 
-impl From<&Reply> for i16 {
-    fn from(reply: &Reply) -> i16 {
+impl From<&Reply> for String {
+    fn from(reply: &Reply) -> String {
         match reply {
-            Reply::RPL_WELCOME(_, _, _) => 001,
-            Reply::RPL_YOURHOST(_, _, _) => 002,
-            Reply::RPL_CREATED(_, _, _) => 003,
-            Reply::RPL_MYINFO(_, _, _) => 004,
+            Reply::RPL_WELCOME(_, _, _) => "001".to_owned(),
+            Reply::RPL_YOURHOST(_, _, _) => "002".to_owned(),
+            Reply::RPL_CREATED(_, _, _) => "003".to_owned(),
+            Reply::RPL_MYINFO(_, _, _) => "004".to_owned(),
         }
     }
 }
@@ -86,7 +93,7 @@ impl Reply {
         match self {
             Reply::RPL_WELCOME(nick, user, host) => Ok(IrcMessage {
                 prefix: Some("localhost".to_owned()),
-                command: format!("{}", i16::from(self)),
+                command: format!("{}", String::from(self)),
                 command_parameters: vec![
                     nick.to_owned(),
                     format!("Welcome to the network {}!{}@{}", nick, user, host),
@@ -118,7 +125,7 @@ impl IrcMessage {
                 let nick = self
                     .command_parameters
                     .get(0)
-                    .ok_or("NICK is missing a password parameter")?;
+                    .ok_or("NICK is missing a nick parameter")?;
                 Ok(Command::NICK(nick.to_owned()))
             }
             _ => Err(String::from("No command matched")),
