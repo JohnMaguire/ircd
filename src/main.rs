@@ -187,6 +187,30 @@ impl IrcMessage {
                     .ok_or("NICK is missing a nick parameter")?;
                 Ok(Command::NICK(nick.to_owned()))
             }
+            "USER" => {
+                let user = self
+                    .command_parameters
+                    .get(0)
+                    .ok_or("USER is missing a user parameter")?;
+                let mode = self
+                    .command_parameters
+                    .get(1)
+                    .ok_or("USER is missing a mode parameter")?;
+                let unused = self
+                    .command_parameters
+                    .get(2)
+                    .ok_or("USER is missing a unused parameter")?;
+                let realname = self
+                    .command_parameters
+                    .get(3)
+                    .ok_or("USER is missing a realname parameter")?;
+                Ok(Command::USER(
+                    user.to_owned(),
+                    mode.parse().or(Err(String::from("Invalid usermode")))?,
+                    unused.to_owned(),
+                    realname.to_owned(),
+                ))
+            }
             _ => Err(String::from("No command matched")),
         }
     }
