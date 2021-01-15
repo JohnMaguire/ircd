@@ -16,31 +16,73 @@ impl TryFrom<String> for IrcMessage {
         if s == "" {
             return Err(Self::Error::from("IRC message may not be empty"));
         }
-        let mut vec = s.trim_end_matches("\r\n").split(" ").collect::<Vec<&str>>();
 
-        // check for a prefix in the message
-        let prefix = {
-            let maybe_prefix: &str = vec.first().unwrap();
-            match maybe_prefix.chars().next().unwrap() {
-                ':' => {
-                    vec.drain(..1);
-                    Some(maybe_prefix.to_owned())
+        let mut s = s.trim_end_matches("\r\n").to_owned();
+
+        // check for optional prefix
+        let mut prefix: Option<String> = None;
+        if let Some(idx) = s.find(':') {
+            prefix = match idx {
+                0 => {
+                    s.remove(idx);
+                    match s.find(' ') {
+                        None => {
+                            // it's not clear if there is a prefix following the colon or not, but
+                            // we can be sure that there is no command, which is required
+                            return Err(Self::Error::from(
+                                "Found prefix indication, but no command",
+                            ));
+                        }
+                        Some(0) => {
+                            // prefix colon may not precede a space
+                            return Err(Self::Error::from(
+                                "Found prefix indication, but no prefix",
+                            ));
+                        }
+                        Some(prefix_end) => {
+                            s.remove(prefix_end);
+                            Some(s.drain(..prefix_end).collect::<String>())
+                        }
+                    }
                 }
+                // must be a trailing parameter
                 _ => None,
+            };
+        }
+
+        // check for required command
+        let command = {
+            if let Some(idx) = s.find(' ') {
+                s.remove(idx);
+                s.drain(..idx).collect::<String>()
+            } else {
+                return Err(Self::Error::from("Missing required command"));
             }
         };
 
-        // command is required
-        let command = vec
-            .drain(..1)
-            .as_slice()
-            .first()
-            .get_or_insert(&"")
-            .to_string();
+        // check for optional command parameters
+        // there is a parameter beginning with a :, it is the last parameter, and everything
+        // following the :, including spaces, should be included
+        let trailer = {
+            if let Some(idx) = s.find(" :") {
+                s.drain(idx..idx + 2);
+                Some(s.drain(idx..).collect::<String>())
+            } else {
+                None
+            }
+        };
 
-        // any remaining parameters are command parameters
-        // FIXME: this should look for trailing and separate it into its own parameter
-        let command_parameters: Vec<String> = vec.into_iter().map(|s| s.to_owned()).collect();
+        let mut command_parameters: Vec<String> = s
+            .split(" ")
+            .collect::<Vec<&str>>()
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect();
+
+        // add trailer if there was one
+        if trailer.is_some() {
+            command_parameters.push(trailer.unwrap());
+        }
 
         Ok(IrcMessage {
             prefix: prefix,
