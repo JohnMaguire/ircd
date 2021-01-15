@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reply = Reply::RPL_WELCOME("nick".to_owned(), "user".to_owned(), "ident".to_owned())
         .to_irc_message()
         .unwrap();
-    tcp_stream.write(String::from(reply).as_bytes());
+    tcp_stream.write(String::from(reply).as_bytes())?;
 
     Ok(())
 }
