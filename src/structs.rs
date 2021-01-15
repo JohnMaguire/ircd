@@ -1,15 +1,33 @@
 use std::convert::TryFrom;
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IrcMessage {
-    prefix: Option<String>,
-    command: String,
-    command_parameters: Vec<String>,
+    pub prefix: Option<String>,
+    pub command: String,
+    pub command_parameters: Vec<String>,
 }
 
 impl TryFrom<String> for IrcMessage {
     type Error = String;
+
+    /// Examples
+    ///
+    /// ```
+    /// use std::convert::TryFrom;
+    /// use ircd::structs::IrcMessage;
+    ///
+    /// let s = String::from(":irc.darkscience.net PRIVMSG Cardinal :this is a test");
+    /// let irc_message = IrcMessage::try_from(s)?;
+    ///
+    /// assert_eq!(irc_message, IrcMessage {
+    ///     prefix: Some(String::from("irc.darkscience.net")),
+    ///     command: String::from("PRIVMSG"),
+    ///     command_parameters: vec![String::from("Cardinal"), String::from("this is a test")],
+    /// });
+    ///
+    /// Ok::<(), String>(())
+    /// ```
     fn try_from(s: String) -> Result<Self, Self::Error> {
         if s == "" {
             return Err(Self::Error::from("IRC message may not be empty"));
