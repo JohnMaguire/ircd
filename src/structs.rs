@@ -38,26 +38,19 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
         }
 
         let mut start = 0;
-        let mut end = s.len();
 
         // check for optional prefix
         let prefix: Option<&str> = {
-            match &s[start..end].find(':') {
+            match s.find(':') {
                 Some(0) => {
                     start += 1;
-                    match &s[start..end].find(' ') {
-                        None => {
-                            // it's not clear if there is a prefix following the colon or not, but
-                            // we can be sure that there is no command, which is required
+                    match &s[start..].find(' ') {
+                        // prefix indicator must not be followed by a space, and a prefix must be
+                        // followed by a command
+                        None | Some(0) => {
                             return Err(Self::Error::from(
-                                "Found prefix indication, but no command",
-                            ));
-                        }
-                        Some(0) => {
-                            // prefix colon may not precede a space
-                            return Err(Self::Error::from(
-                                "Found prefix indication, but no prefix",
-                            ));
+                                "Found prefix indication, followed by invalid prefix",
+                            ))
                         }
                         Some(prefix_end) => {
                             let prefix = &s[start..*prefix_end + 1];
@@ -73,7 +66,7 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
 
         // check for required command
         let command = {
-            if let Some(idx) = &s[start..end].find(' ') {
+            if let Some(idx) = &s[start..].find(' ') {
                 let command = &s[start..start + *idx];
                 start += idx + 1;
                 command
@@ -83,24 +76,29 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
         };
 
         // check for optional command parameters
-        // there is a parameter beginning with a :, it is the last parameter, and everything
-        // following the :, including spaces, should be included
-        let trailer = {
-            if let Some(idx) = &s[start..end].find(" :") {
-                let trailer = &s[start + idx + 2..];
-                end = start + *idx;
-                Some(trailer)
-            } else {
-                None
+        let command_parameters: Vec<&str> = {
+            // if there is a parameter beginning with a : it is the last parameter and everything
+            // following the : should be included
+            let mut end = s.len();
+            let trailer = {
+                if let Some(idx) = &s[start..].find(" :") {
+                    let trailer = &s[start + idx + 2..];
+                    end = start + *idx;
+                    Some(trailer)
+                } else {
+                    None
+                }
+            };
+
+            let mut command_parameters: Vec<&str> = s[start..end].split(" ").collect();
+
+            // add trailer if there was one
+            if trailer.is_some() {
+                command_parameters.push(trailer.unwrap());
             }
+
+            command_parameters
         };
-
-        let mut command_parameters: Vec<&str> = s[start..end].split(" ").collect::<Vec<&str>>();
-
-        // add trailer if there was one
-        if trailer.is_some() {
-            command_parameters.push(trailer.unwrap());
-        }
 
         Ok(IrcMessage {
             prefix: prefix,
