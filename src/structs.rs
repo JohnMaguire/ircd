@@ -17,13 +17,13 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
     /// use std::convert::TryFrom;
     /// use ircd::structs::IrcMessage;
     ///
-    /// let s = String::from(":irc.darkscience.net PRIVMSG Cardinal :this is a test");
+    /// let s = ":irc.darkscience.net PRIVMSG Cardinal :this is a test";
     /// let irc_message = IrcMessage::try_from(s)?;
     ///
     /// assert_eq!(irc_message, IrcMessage {
-    ///     prefix: Some(String::from("irc.darkscience.net")),
-    ///     command: String::from("PRIVMSG"),
-    ///     command_parameters: vec![String::from("Cardinal"), String::from("this is a test")],
+    ///     prefix: Some("irc.darkscience.net"),
+    ///     command: "PRIVMSG",
+    ///     command_parameters: vec!["Cardinal", "this is a test"],
     /// });
     ///
     /// Ok::<(), String>(())
@@ -60,8 +60,8 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
                             ));
                         }
                         Some(prefix_end) => {
-                            let prefix = &s[start..*prefix_end];
-                            start = *prefix_end;
+                            let prefix = &s[start..*prefix_end + 1];
+                            start = *prefix_end + 2;
                             Some(prefix)
                         }
                     }
@@ -74,7 +74,7 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
         // check for required command
         let command = {
             if let Some(idx) = &s[start..end].find(' ') {
-                let command = &s[start..*idx];
+                let command = &s[start..start + *idx];
                 start += idx + 1;
                 command
             } else {
@@ -88,7 +88,7 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
         let trailer = {
             if let Some(idx) = &s[start..end].find(" :") {
                 let trailer = &s[start + idx + 2..];
-                end = start + *idx + 2;
+                end = start + *idx;
                 Some(trailer)
             } else {
                 None
