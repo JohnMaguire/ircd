@@ -54,7 +54,8 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
                         }
                         Some(prefix_end) => {
                             let prefix = &s[start..*prefix_end + 1];
-                            start = *prefix_end + 2;
+                            // skip over the space that follows the prefix as well
+                            start += *prefix_end + 1;
                             Some(prefix)
                         }
                     }
@@ -66,20 +67,21 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
 
         // check for required command
         let command = {
-            if let Some(idx) = &s[start..].find(' ') {
-                let command = &s[start..start + *idx];
-                start += idx + 1;
-                command
-            } else {
-                return Err(Self::Error::from("Missing required command"));
-            }
+            let idx = s[start..].find(' ').unwrap_or(s[start..].len());
+            let command = &s[start..start + idx];
+            // do not skip the space because detecting a trailer later will rely on the fact that a
+            // trailng param colon must be prefixed by a space
+            start += idx;
+
+            command
         };
 
         // check for optional command parameters
         let command_parameters: Vec<&str> = {
+            let mut end = s.len();
+
             // if there is a parameter beginning with a : it is the last parameter and everything
             // following the : should be included
-            let mut end = s.len();
             let trailer = {
                 if let Some(idx) = &s[start..].find(" :") {
                     let trailer = &s[start + idx + 2..];
@@ -90,7 +92,13 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
                 }
             };
 
-            let mut command_parameters: Vec<&str> = s[start..end].split(" ").collect();
+            let mut command_parameters: Vec<&str> = if start < end {
+                // skip over the leftover space that follows the command
+                start += 1;
+                s[start..end].split(" ").collect()
+            } else {
+                vec![]
+            };
 
             // add trailer if there was one
             if trailer.is_some() {
@@ -227,5 +235,94 @@ impl IrcMessage<'_> {
             }
             _ => Err(String::from("No command matched")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn command_parameters_not_required() -> Result<(), String> {
+        let s = "LIST";
+        let irc_message = IrcMessage::try_from(s)?;
+
+        assert_eq!(
+            irc_message,
+            IrcMessage {
+                prefix: None,
+                command: "LIST",
+                command_parameters: vec![],
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn command_prefix() -> Result<(), String> {
+        let s = ":irc.darkscience.net LIST";
+        let irc_message = IrcMessage::try_from(s)?;
+
+        assert_eq!(
+            irc_message,
+            IrcMessage {
+                prefix: Some("irc.darkscience.net"),
+                command: "LIST",
+                command_parameters: vec![],
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn command_parameters() -> Result<(), String> {
+        let s = "PRIVMSG Cardinal :this is a test";
+        let irc_message = IrcMessage::try_from(s)?;
+
+        assert_eq!(
+            irc_message,
+            IrcMessage {
+                prefix: None,
+                command: "PRIVMSG",
+                command_parameters: vec!["Cardinal", "this is a test"],
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn command_parameters_no_trailer() -> Result<(), String> {
+        let s = "MODE #test +v Cardinal";
+        let irc_message = IrcMessage::try_from(s)?;
+
+        assert_eq!(
+            irc_message,
+            IrcMessage {
+                prefix: None,
+                command: "MODE",
+                command_parameters: vec!["#test", "+v", "Cardinal"],
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn command_parameter_trailer_only() -> Result<(), String> {
+        let s = "PONG :irc.darkscience.net";
+        let irc_message = IrcMessage::try_from(s)?;
+
+        assert_eq!(
+            irc_message,
+            IrcMessage {
+                prefix: None,
+                command: "PONG",
+                command_parameters: vec!["irc.darkscience.net"],
+            }
+        );
+
+        Ok(())
     }
 }
