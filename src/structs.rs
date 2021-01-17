@@ -1,6 +1,41 @@
 use std::convert::TryFrom;
 use std::fmt;
 
+type Result<T> = std::result::Result<T, ParseError>;
+
+#[derive(Debug)]
+pub enum ParseError {
+    UnknownCommandError(UnknownCommand),
+    MissingCommandParameterError(MissingCommandParameter),
+}
+
+#[derive(Debug)]
+pub struct UnknownCommand {
+    pub command: String,
+}
+
+#[derive(Debug)]
+pub struct MissingCommandParameter {
+    pub command: String,
+    pub parameter: String,
+    pub index: usize,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            ParseError::UnknownCommandError(error) => format!("Unknown command: {}", error.command),
+            ParseError::MissingCommandParameterError(error) => format!(
+                "Command {} missing parameter: {}",
+                error.command, error.parameter
+            ),
+        };
+        write!(f, "{}", message)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct IrcMessage<'a> {
     pub prefix: Option<&'a str>,
@@ -28,11 +63,7 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
     ///
     /// Ok::<(), String>(())
     /// ```
-    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-        // It seems I need to set something like...
-        //   fn try_from<'a>(s: &'a str) -> &'a Result<Self, Self::Error>
-        // But I can't return a reference to the Result, so how can I set the
-        // lifetime for the Result?
+    fn try_from(s: &'a str) -> std::result::Result<Self, Self::Error> {
         if s == "" {
             return Err(Self::Error::from("IRC message may not be empty"));
         }
@@ -116,133 +147,173 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
     }
 }
 
-impl From<IrcMessage<'_>> for String {
-    fn from(irc_message: IrcMessage) -> String {
-        let mut message = "".to_owned();
-        message.push_str(
-            irc_message
-                .prefix
-                .map_or("".to_string(), |s| format!(":{} ", s))
-                .as_str(),
-        );
-        message.push_str(format!("{} ", irc_message.command).as_str());
-        message.push_str(irc_message.command_parameters.join(" ").as_str());
-        message.push_str("\r\n");
-
-        message
-    }
-}
-
-impl fmt::Display for IrcMessage<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let prefix = match &self.prefix {
-            Some(p) => format!("{}{} ", ":", p),
-            _ => "".to_owned(),
-        };
-
-        let command_parameters = {
-            let con = &self.command_parameters;
-            match con.as_slice() {
-                [] => "".to_owned(),
-                _ => format!(" {}", con.join(" ")),
-            }
-        };
-
-        write!(f, "{}{}{}", prefix, &self.command, command_parameters)
-    }
-}
-
 #[allow(non_camel_case_types)]
 pub enum Reply {
     RPL_WELCOME(String, String, String),
-    RPL_YOURHOST(String, String, String),
-    RPL_CREATED(String, String, String),
-    RPL_MYINFO(String, String, String),
+    // RPL_YOURHOST(String, String, String),
+    // RPL_CREATED(String, String, String),
+    // RPL_MYINFO(String, String, String),
+    ERR_UNKNOWNCOMMAND(String),
+    ERR_NEEDMOREPARAMS(String),
 }
 
 impl Reply {
     fn as_str(self: &Self) -> &str {
         match self {
             Reply::RPL_WELCOME(_, _, _) => "001",
-            Reply::RPL_YOURHOST(_, _, _) => "002",
-            Reply::RPL_CREATED(_, _, _) => "003",
-            Reply::RPL_MYINFO(_, _, _) => "004",
+            // Reply::RPL_YOURHOST(_, _, _) => "002",
+            // Reply::RPL_CREATED(_, _, _) => "003",
+            // Reply::RPL_MYINFO(_, _, _) => "004",
+            Reply::ERR_UNKNOWNCOMMAND(_) => "421",
+            Reply::ERR_NEEDMOREPARAMS(_) => "461",
         }
     }
 
-    pub fn as_line(self: &Self) -> Result<String, String> {
+    pub fn as_line(self: &Self) -> String {
         match self {
-            Reply::RPL_WELCOME(nick, user, host) => Ok(String::from(IrcMessage {
+            // Command responses
+            Reply::RPL_WELCOME(nick, user, host) => IrcMessage {
                 prefix: Some("localhost"),
                 command: self.as_str(),
                 command_parameters: vec![
                     &nick,
                     format!("Welcome to the network {}!{}@{}", nick, user, host).as_str(),
                 ],
-            })),
-            _ => Err(String::from(format!("Reply is not implemented"))),
+            }
+            .to_line(),
+
+            // Error replies
+            Reply::ERR_UNKNOWNCOMMAND(command) => IrcMessage {
+                prefix: Some("localhost"),
+                command: self.as_str(),
+                command_parameters: vec![command, "Unknown command"],
+            }
+            .to_line(),
+
+            // Error replies
+            Reply::ERR_NEEDMOREPARAMS(command) => IrcMessage {
+                prefix: Some("localhost"),
+                command: self.as_str(),
+                command_parameters: vec![command, "Not enough parameters"],
+            }
+            .to_line(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Command<'a> {
     PASS(&'a str),
     NICK(&'a str),
-    USER(&'a str, i8, &'a str, &'a str),
+    USER(&'a str, &'a str, &'a str, &'a str),
 }
 
 impl IrcMessage<'_> {
-    pub fn to_command(&self) -> Result<Command, String> {
+    /// Examples
+    ///
+    /// ```
+    /// use ircd::structs::{Command, IrcMessage};
+    ///
+    /// let irc_message = IrcMessage{
+    ///     prefix: None,
+    ///     command: "USER",
+    ///     command_parameters: vec!["Cardinal", "8", "*", "Cardinal"],
+    /// };
+    /// let command = irc_message.to_command().unwrap();
+    ///
+    /// assert_eq!(command, Command::USER("Cardinal", "8", "*", "Cardinal"));
+    ///
+    /// Ok::<(), String>(())
+    /// ```
+    pub fn to_command(&self) -> Result<Command> {
         match self.command {
             "PASS" => {
-                let password = self
-                    .command_parameters
-                    .get(0)
-                    .ok_or("PASS is missing a password parameter")?;
-                Ok(Command::PASS(password.to_owned()))
+                let password = self.get_command_parameter(0, "password")?;
+                Ok(Command::PASS(password))
             }
             "NICK" => {
-                let nick = self
-                    .command_parameters
-                    .get(0)
-                    .ok_or("NICK is missing a nick parameter")?;
-                Ok(Command::NICK(nick.to_owned()))
+                let nick = self.get_command_parameter(0, "nick")?;
+                Ok(Command::NICK(nick))
             }
             "USER" => {
-                let user = self
-                    .command_parameters
-                    .get(0)
-                    .ok_or("USER is missing a user parameter")?;
-                let mode = self
-                    .command_parameters
-                    .get(1)
-                    .ok_or("USER is missing a mode parameter")?;
-                let unused = self
-                    .command_parameters
-                    .get(2)
-                    .ok_or("USER is missing a unused parameter")?;
-                let realname = self
-                    .command_parameters
-                    .get(3)
-                    .ok_or("USER is missing a realname parameter")?;
-                Ok(Command::USER(
-                    user.to_owned(),
-                    mode.parse().or(Err(String::from("Invalid usermode")))?,
-                    unused.to_owned(),
-                    realname.to_owned(),
-                ))
+                let user = self.get_command_parameter(0, "user")?;
+                let mode = self.get_command_parameter(1, "mode")?;
+                let unused = self.get_command_parameter(2, "unused")?;
+                let realname = self.get_command_parameter(3, "realname")?;
+                Ok(Command::USER(user, mode, unused, realname))
             }
-            _ => Err(String::from("No command matched")),
+            _ => Err(ParseError::UnknownCommandError(UnknownCommand {
+                command: self.command.to_owned(),
+            })),
         }
+    }
+
+    fn get_command_parameter(&self, idx: usize, name: &str) -> Result<&str> {
+        let param = self.command_parameters.get(idx).ok_or_else(|| {
+            ParseError::MissingCommandParameterError(MissingCommandParameter {
+                command: self.command.to_owned(),
+                parameter: name.to_owned(),
+                index: idx,
+            })
+        })?;
+
+        Ok(param)
+    }
+
+    /// Examples
+    ///
+    /// ```
+    /// use ircd::structs::{Command, IrcMessage};
+    ///
+    /// let irc_message = IrcMessage{
+    ///     prefix: Some("localhost"),
+    ///     command: "PRIVMSG",
+    ///     command_parameters: vec!["Cardinal", "this is an example"],
+    /// };
+    /// let s = irc_message.to_line();
+    ///
+    /// assert_eq!(s, ":localhost PRIVMSG Cardinal :this is an example\r\n".to_owned());
+    ///
+    /// Ok::<(), String>(())
+    /// ```
+    ///
+    /// Note: The last parameter will always be prefixed with a colon.
+    pub fn to_line(mut self) -> String {
+        let mut message = "".to_owned();
+        message.push_str(
+            self.prefix
+                .map_or("".to_string(), |s| format!(":{} ", s))
+                .as_str(),
+        );
+        message.push_str(self.command);
+
+        if self.command_parameters.len() > 0 {
+            message.push_str(" ");
+
+            // a little dance to stick the last param behind a colon to ensure that params with
+            // spaces work correctly (e.g. messages)
+            let mut params = self
+                .command_parameters
+                .drain(0..self.command_parameters.len() - 1)
+                .collect::<Vec<&str>>();
+            let last_param = format!(":{}", self.command_parameters.pop().unwrap());
+            params.push(last_param.as_str());
+
+            message.push_str(params.join(" ").as_str());
+        }
+
+        message.push_str("\r\n");
+
+        message
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn command_parameters_not_required() -> Result<(), String> {
+    fn command_parameters_not_required() -> std::result::Result<(), String> {
         let s = "LIST";
         let irc_message = IrcMessage::try_from(s)?;
 
@@ -259,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn command_prefix() -> Result<(), String> {
+    fn command_prefix() -> std::result::Result<(), String> {
         let s = ":irc.darkscience.net LIST";
         let irc_message = IrcMessage::try_from(s)?;
 
@@ -276,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn command_parameters() -> Result<(), String> {
+    fn command_parameters() -> std::result::Result<(), String> {
         let s = "PRIVMSG Cardinal :this is a test";
         let irc_message = IrcMessage::try_from(s)?;
 
@@ -293,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn command_parameters_no_trailer() -> Result<(), String> {
+    fn command_parameters_no_trailer() -> std::result::Result<(), String> {
         let s = "MODE #test +v Cardinal";
         let irc_message = IrcMessage::try_from(s)?;
 
@@ -310,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn command_parameter_trailer_only() -> Result<(), String> {
+    fn command_parameter_trailer_only() -> std::result::Result<(), String> {
         let s = "PONG :irc.darkscience.net";
         let irc_message = IrcMessage::try_from(s)?;
 

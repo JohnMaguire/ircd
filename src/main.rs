@@ -13,39 +13,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut tcp_stream, addr) = listener.accept()?; // blocks until connection
     println!("Connection from {:?}", addr);
 
-    // read input
-    // let mut input = String::new();
-    // let _ = reader.read_line(&mut input);
     let read_stream = tcp_stream.try_clone()?;
     let reader = BufReader::new(read_stream);
     let lines = reader.lines();
 
     for line in lines {
-        let line = line.unwrap();
-        println!("{:?} says: {}", addr, line);
-
         // translate to internal irc message struct
+        let line = line.unwrap();
         let irc_message = structs::IrcMessage::try_from(line.as_str())?;
-        let command = irc_message.to_command().unwrap();
-        println!("{:?} -> {:?}", irc_message, command);
 
-        if let Ok(command) = irc_message.to_command() {
-            match command {
-                structs::Command::USER(user, _mode, _unused, _realname) => {
-                    // send a welcome message
-                    let reply = structs::Reply::RPL_WELCOME(
-                        "nick".to_owned(),
-                        user.to_owned(),
-                        "ident".to_owned(),
-                    )
-                    .as_line()
-                    .unwrap();
-                    tcp_stream.write(reply.as_bytes())?;
-                }
-                _ => {
-                    println!("Not handling command");
+        // decide whether to generate a reply
+        let reply: Option<structs::Reply>;
+        match irc_message.to_command() {
+            Ok(command) => {
+                println!("{:?} -> {:?}", irc_message, command);
+
+                reply = match command {
+                    structs::Command::USER(user, _mode, _unused, _realname) => {
+                        Some(structs::Reply::RPL_WELCOME(
+                            "nick".to_owned(),
+                            user.to_owned(),
+                            "ident".to_owned(),
+                        ))
+                    }
+                    _ => None,
+                };
+            }
+            Err(error) => {
+                println!("{:?} -> {:?}", irc_message, error);
+
+                reply = match error {
+                    structs::ParseError::UnknownCommandError(e) => {
+                        Some(structs::Reply::ERR_UNKNOWNCOMMAND(e.command))
+                    }
+                    structs::ParseError::MissingCommandParameterError(e) => {
+                        Some(structs::Reply::ERR_NEEDMOREPARAMS(e.command))
+                    }
                 }
             }
+        }
+
+        if reply.is_some() {
+            tcp_stream.write(reply.unwrap().as_line().as_bytes())?;
         }
     }
 
