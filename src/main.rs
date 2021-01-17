@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:?} says: {}", addr, line);
 
         // translate to internal irc message struct
-        let irc_message = structs::IrcMessage::try_from(line)?;
+        let irc_message = structs::IrcMessage::try_from(line.as_str())?;
         let command = irc_message.to_command().unwrap();
         println!("{:?} -> {:?}", irc_message, command);
 
@@ -38,9 +38,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         user.to_owned(),
                         "ident".to_owned(),
                     )
-                    .to_irc_message()
+                    .as_line()
                     .unwrap();
-                    tcp_stream.write(String::from(reply).as_bytes())?;
+                    tcp_stream.write(reply.as_bytes())?;
                 }
                 _ => {
                     println!("Not handling command");
