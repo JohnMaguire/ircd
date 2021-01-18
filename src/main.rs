@@ -30,11 +30,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 reply = match command {
                     structs::Command::USER(user, _mode, _unused, _realname) => {
-                        Some(structs::Reply::RPL_WELCOME(
-                            "nick".to_owned(),
-                            user.to_owned(),
-                            "ident".to_owned(),
-                        ))
+                        Some(structs::Reply::RPL_WELCOME(structs::ReplyWelcome {
+                            nick: "nick".to_owned(),
+                            user: user.to_owned(),
+                            host: "host".to_owned(),
+                        }))
                     }
                     _ => None,
                 };
@@ -44,10 +44,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 reply = match error {
                     structs::ParseError::UnknownCommandError(e) => {
-                        Some(structs::Reply::ERR_UNKNOWNCOMMAND(e.command))
+                        Some(structs::Reply::ERR_UNKNOWNCOMMAND(structs::ErrorCommand {
+                            command: e.command.to_owned(),
+                        }))
                     }
                     structs::ParseError::MissingCommandParameterError(e) => {
-                        Some(structs::Reply::ERR_NEEDMOREPARAMS(e.command))
+                        Some(structs::Reply::ERR_NEEDMOREPARAMS(structs::ErrorCommand {
+                            command: e.command,
+                        }))
                     }
                 }
             }

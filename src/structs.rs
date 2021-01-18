@@ -149,18 +149,28 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
 
 #[allow(non_camel_case_types)]
 pub enum Reply {
-    RPL_WELCOME(String, String, String),
-    // RPL_YOURHOST(String, String, String),
+    RPL_WELCOME(ReplyWelcome),
+    //RPL_YOURHOST(String, String, String),
     // RPL_CREATED(String, String, String),
     // RPL_MYINFO(String, String, String),
-    ERR_UNKNOWNCOMMAND(String),
-    ERR_NEEDMOREPARAMS(String),
+    ERR_UNKNOWNCOMMAND(ErrorCommand),
+    ERR_NEEDMOREPARAMS(ErrorCommand),
+}
+
+pub struct ReplyWelcome {
+    pub nick: String,
+    pub user: String,
+    pub host: String,
+}
+
+pub struct ErrorCommand {
+    pub command: String,
 }
 
 impl Reply {
-    fn as_str(self: &Self) -> &str {
+    fn as_str(&self) -> &str {
         match self {
-            Reply::RPL_WELCOME(_, _, _) => "001",
+            Reply::RPL_WELCOME(_) => "001",
             // Reply::RPL_YOURHOST(_, _, _) => "002",
             // Reply::RPL_CREATED(_, _, _) => "003",
             // Reply::RPL_MYINFO(_, _, _) => "004",
@@ -169,32 +179,30 @@ impl Reply {
         }
     }
 
-    pub fn as_line(self: &Self) -> String {
+    pub fn as_line(&self) -> String {
         match self {
             // Command responses
-            Reply::RPL_WELCOME(nick, user, host) => IrcMessage {
+            Reply::RPL_WELCOME(r) => IrcMessage {
                 prefix: Some("localhost"),
                 command: self.as_str(),
                 command_parameters: vec![
-                    &nick,
-                    format!("Welcome to the network {}!{}@{}", nick, user, host).as_str(),
+                    &r.nick,
+                    format!("Welcome to the network {}!{}@{}", r.nick, r.user, r.host).as_str(),
                 ],
             }
             .to_line(),
 
             // Error replies
-            Reply::ERR_UNKNOWNCOMMAND(command) => IrcMessage {
+            Reply::ERR_UNKNOWNCOMMAND(e) => IrcMessage {
                 prefix: Some("localhost"),
                 command: self.as_str(),
-                command_parameters: vec![command, "Unknown command"],
+                command_parameters: vec![&e.command, "Unknown command"],
             }
             .to_line(),
-
-            // Error replies
-            Reply::ERR_NEEDMOREPARAMS(command) => IrcMessage {
+            Reply::ERR_NEEDMOREPARAMS(e) => IrcMessage {
                 prefix: Some("localhost"),
                 command: self.as_str(),
-                command_parameters: vec![command, "Not enough parameters"],
+                command_parameters: vec![&e.command, "Not enough parameters"],
             }
             .to_line(),
         }
