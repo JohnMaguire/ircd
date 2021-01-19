@@ -23,42 +23,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let irc_message = structs::IrcMessage::try_from(line.as_str())?;
 
         // decide whether to generate a reply
-        let reply: Option<structs::Reply>;
+        let mut replies: Vec<structs::Reply> = vec![];
         match irc_message.to_command() {
             Ok(command) => {
                 println!("{:?} -> {:?}", irc_message, command);
 
-                reply = match command {
+                match command {
                     structs::Command::USER(user, _mode, _unused, _realname) => {
-                        Some(structs::Reply::RPL_WELCOME(structs::ReplyWelcome {
+                        replies.push(structs::Reply::RPL_WELCOME(structs::ReplyWelcome {
                             nick: "nick".to_owned(),
                             user: user.to_owned(),
                             host: "host".to_owned(),
                         }))
                     }
-                    _ => None,
+                    _ => (),
                 };
             }
             Err(error) => {
                 println!("{:?} -> {:?}", irc_message, error);
 
-                reply = match error {
-                    structs::ParseError::UnknownCommandError(e) => {
-                        Some(structs::Reply::ERR_UNKNOWNCOMMAND(structs::ErrorCommand {
-                            command: e.command.to_owned(),
+                match error {
+                    structs::ParseError::UnknownCommandError { command } => {
+                        replies.push(structs::Reply::ERR_UNKNOWNCOMMAND(structs::ErrorCommand {
+                            command,
                         }))
                     }
-                    structs::ParseError::MissingCommandParameterError(e) => {
-                        Some(structs::Reply::ERR_NEEDMOREPARAMS(structs::ErrorCommand {
-                            command: e.command,
-                        }))
-                    }
+                    structs::ParseError::MissingCommandParameterError {
+                        command,
+                        parameter: _,
+                        index: _,
+                    } => replies.push(structs::Reply::ERR_NEEDMOREPARAMS(structs::ErrorCommand {
+                        command,
+                    })),
                 }
             }
         }
 
-        if reply.is_some() {
-            tcp_stream.write(reply.unwrap().as_line().as_bytes())?;
+        for reply in replies {
+            tcp_stream.write(reply.as_line().as_bytes())?;
         }
     }
 

@@ -5,13 +5,14 @@ type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(Debug)]
 pub enum ParseError {
-    UnknownCommandError(UnknownCommand),
-    MissingCommandParameterError(MissingCommandParameter),
-}
-
-#[derive(Debug)]
-pub struct UnknownCommand {
-    pub command: String,
+    UnknownCommandError {
+        command: String,
+    },
+    MissingCommandParameterError {
+        command: String,
+        parameter: String,
+        index: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -24,11 +25,12 @@ pub struct MissingCommandParameter {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            ParseError::UnknownCommandError(error) => format!("Unknown command: {}", error.command),
-            ParseError::MissingCommandParameterError(error) => format!(
-                "Command {} missing parameter: {}",
-                error.command, error.parameter
-            ),
+            ParseError::UnknownCommandError { command } => format!("Unknown command: {}", command),
+            ParseError::MissingCommandParameterError {
+                command,
+                parameter,
+                index: _,
+            } => format!("Command {} missing parameter: {}", command, parameter,),
         };
         write!(f, "{}", message)
     }
@@ -250,19 +252,19 @@ impl IrcMessage<'_> {
                 let realname = self.get_command_parameter(3, "realname")?;
                 Ok(Command::USER(user, mode, unused, realname))
             }
-            _ => Err(ParseError::UnknownCommandError(UnknownCommand {
+            _ => Err(ParseError::UnknownCommandError {
                 command: self.command.to_owned(),
-            })),
+            }),
         }
     }
 
     fn get_command_parameter(&self, idx: usize, name: &str) -> Result<&str> {
         let param = self.command_parameters.get(idx).ok_or_else(|| {
-            ParseError::MissingCommandParameterError(MissingCommandParameter {
+            ParseError::MissingCommandParameterError {
                 command: self.command.to_owned(),
                 parameter: name.to_owned(),
                 index: idx,
-            })
+            }
         })?;
 
         Ok(param)
