@@ -2,9 +2,13 @@ use std::convert::TryFrom;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
+mod config;
 mod structs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // read config
+    let config = config::get_config("./config.toml")?;
+
     // listen for connection on 127.0.0.1:6667
     let socket = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 6667);
     let listener = TcpListener::bind(socket)?;
@@ -30,31 +34,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 match command {
                     structs::Command::USER(user, _mode, _unused, _realname) => {
-                        replies.push(structs::Reply::RPL_WELCOME(structs::ReplyWelcome {
+                        replies.push(structs::Reply::RPL_WELCOME {
                             nick: "nick".to_owned(),
                             user: user.to_owned(),
                             host: "host".to_owned(),
-                        }))
+                        });
+                        replies.push(structs::Reply::RPL_YOURHOST {
+                            nick: "nick".to_owned(),
+                            server_name: &config.irc.hostname,
+                            version: "0.1.0".to_owned(),
+                        });
                     }
                     _ => (),
                 };
             }
             Err(error) => {
                 println!("{:?} -> {:?}", irc_message, error);
-
                 match error {
                     structs::ParseError::UnknownCommandError { command } => {
-                        replies.push(structs::Reply::ERR_UNKNOWNCOMMAND(structs::ErrorCommand {
-                            command,
-                        }))
+                        replies.push(structs::Reply::ERR_UNKNOWNCOMMAND { command })
                     }
                     structs::ParseError::MissingCommandParameterError {
                         command,
                         parameter: _,
                         index: _,
-                    } => replies.push(structs::Reply::ERR_NEEDMOREPARAMS(structs::ErrorCommand {
-                        command,
-                    })),
+                    } => replies.push(structs::Reply::ERR_NEEDMOREPARAMS { command }),
                 }
             }
         }
