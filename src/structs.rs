@@ -15,12 +15,7 @@ pub enum ParseError {
     },
 }
 
-#[derive(Debug)]
-pub struct MissingCommandParameter {
-    pub command: String,
-    pub parameter: String,
-    pub index: usize,
-}
+impl std::error::Error for ParseError {}
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -36,13 +31,111 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct IrcMessage<'a> {
     pub prefix: Option<&'a str>,
     pub command: &'a str,
     pub command_parameters: Vec<&'a str>,
+}
+
+impl IrcMessage<'_> {
+    /// Examples
+    ///
+    /// ```
+    /// use ircd::structs::{Command, IrcMessage};
+    ///
+    /// let irc_message = IrcMessage{
+    ///     prefix: None,
+    ///     command: "USER",
+    ///     command_parameters: vec!["Cardinal", "8", "*", "Cardinal"],
+    /// };
+    /// let command = irc_message.to_command().unwrap();
+    ///
+    /// assert_eq!(command, Command::USER("Cardinal", "8", "*", "Cardinal"));
+    ///
+    /// Ok::<(), String>(())
+    /// ```
+    pub fn to_command(&self) -> Result<Command> {
+        match self.command {
+            "PASS" => {
+                let password = self.get_command_parameter(0, "password")?;
+                Ok(Command::PASS(password))
+            }
+            "NICK" => {
+                let nick = self.get_command_parameter(0, "nick")?;
+                Ok(Command::NICK(nick))
+            }
+            "USER" => {
+                let user = self.get_command_parameter(0, "user")?;
+                let mode = self.get_command_parameter(1, "mode")?;
+                let unused = self.get_command_parameter(2, "unused")?;
+                let realname = self.get_command_parameter(3, "realname")?;
+                Ok(Command::USER(user, mode, unused, realname))
+            }
+            _ => Err(ParseError::UnknownCommandError {
+                command: self.command.to_owned(),
+            }),
+        }
+    }
+
+    fn get_command_parameter(&self, idx: usize, name: &str) -> Result<&str> {
+        let param = self.command_parameters.get(idx).ok_or_else(|| {
+            ParseError::MissingCommandParameterError {
+                command: self.command.to_owned(),
+                parameter: name.to_owned(),
+                index: idx,
+            }
+        })?;
+
+        Ok(param)
+    }
+
+    /// Examples
+    ///
+    /// ```
+    /// use ircd::structs::{Command, IrcMessage};
+    ///
+    /// let irc_message = IrcMessage{
+    ///     prefix: Some("localhost"),
+    ///     command: "PRIVMSG",
+    ///     command_parameters: vec!["Cardinal", "this is an example"],
+    /// };
+    /// let s = irc_message.to_line();
+    ///
+    /// assert_eq!(s, ":localhost PRIVMSG Cardinal :this is an example\r\n".to_owned());
+    ///
+    /// Ok::<(), String>(())
+    /// ```
+    ///
+    /// Note: The last parameter will always be prefixed with a colon.
+    pub fn to_line(mut self) -> String {
+        let mut message = "".to_owned();
+        message.push_str(
+            self.prefix
+                .map_or("".to_string(), |s| format!(":{} ", s))
+                .as_str(),
+        );
+        message.push_str(self.command);
+
+        if self.command_parameters.len() > 0 {
+            message.push_str(" ");
+
+            // a little dance to stick the last param behind a colon to ensure that params with
+            // spaces work correctly (e.g. messages)
+            let mut params = self
+                .command_parameters
+                .drain(0..self.command_parameters.len() - 1)
+                .collect::<Vec<&str>>();
+            let last_param = format!(":{}", self.command_parameters.pop().unwrap());
+            params.push(last_param.as_str());
+
+            message.push_str(params.join(" ").as_str());
+        }
+
+        message.push_str("\r\n");
+
+        message
+    }
 }
 
 impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
@@ -150,7 +243,7 @@ impl<'a> TryFrom<&'a str> for IrcMessage<'a> {
 }
 
 #[allow(non_camel_case_types)]
-pub enum Reply<'a> {
+pub enum Reply {
     RPL_WELCOME {
         nick: String,
         user: String,
@@ -158,7 +251,7 @@ pub enum Reply<'a> {
     },
     RPL_YOURHOST {
         nick: String,
-        server_name: &'a str,
+        server_name: String,
         version: String,
     },
     // RPL_CREATED(String, String, String),
@@ -171,7 +264,7 @@ pub enum Reply<'a> {
     },
 }
 
-impl Reply<'_> {
+impl Reply {
     fn as_str(&self) -> &str {
         match self {
             Reply::RPL_WELCOME {
@@ -184,7 +277,6 @@ impl Reply<'_> {
                 server_name: _,
                 version: _,
             } => "002",
-            // Reply::RPL_YOURHOST(_, _, _) => "002",
             // Reply::RPL_CREATED(_, _, _) => "003",
             // Reply::RPL_MYINFO(_, _, _) => "004",
             Reply::ERR_UNKNOWNCOMMAND { command: _ } => "421",
@@ -243,106 +335,6 @@ pub enum Command<'a> {
     PASS(&'a str),
     NICK(&'a str),
     USER(&'a str, &'a str, &'a str, &'a str),
-}
-
-impl IrcMessage<'_> {
-    /// Examples
-    ///
-    /// ```
-    /// use ircd::structs::{Command, IrcMessage};
-    ///
-    /// let irc_message = IrcMessage{
-    ///     prefix: None,
-    ///     command: "USER",
-    ///     command_parameters: vec!["Cardinal", "8", "*", "Cardinal"],
-    /// };
-    /// let command = irc_message.to_command().unwrap();
-    ///
-    /// assert_eq!(command, Command::USER("Cardinal", "8", "*", "Cardinal"));
-    ///
-    /// Ok::<(), String>(())
-    /// ```
-    pub fn to_command(&self) -> Result<Command> {
-        match self.command {
-            "PASS" => {
-                let password = self.get_command_parameter(0, "password")?;
-                Ok(Command::PASS(password))
-            }
-            "NICK" => {
-                let nick = self.get_command_parameter(0, "nick")?;
-                Ok(Command::NICK(nick))
-            }
-            "USER" => {
-                let user = self.get_command_parameter(0, "user")?;
-                let mode = self.get_command_parameter(1, "mode")?;
-                let unused = self.get_command_parameter(2, "unused")?;
-                let realname = self.get_command_parameter(3, "realname")?;
-                Ok(Command::USER(user, mode, unused, realname))
-            }
-            _ => Err(ParseError::UnknownCommandError {
-                command: self.command.to_owned(),
-            }),
-        }
-    }
-
-    fn get_command_parameter(&self, idx: usize, name: &str) -> Result<&str> {
-        let param = self.command_parameters.get(idx).ok_or_else(|| {
-            ParseError::MissingCommandParameterError {
-                command: self.command.to_owned(),
-                parameter: name.to_owned(),
-                index: idx,
-            }
-        })?;
-
-        Ok(param)
-    }
-
-    /// Examples
-    ///
-    /// ```
-    /// use ircd::structs::{Command, IrcMessage};
-    ///
-    /// let irc_message = IrcMessage{
-    ///     prefix: Some("localhost"),
-    ///     command: "PRIVMSG",
-    ///     command_parameters: vec!["Cardinal", "this is an example"],
-    /// };
-    /// let s = irc_message.to_line();
-    ///
-    /// assert_eq!(s, ":localhost PRIVMSG Cardinal :this is an example\r\n".to_owned());
-    ///
-    /// Ok::<(), String>(())
-    /// ```
-    ///
-    /// Note: The last parameter will always be prefixed with a colon.
-    pub fn to_line(mut self) -> String {
-        let mut message = "".to_owned();
-        message.push_str(
-            self.prefix
-                .map_or("".to_string(), |s| format!(":{} ", s))
-                .as_str(),
-        );
-        message.push_str(self.command);
-
-        if self.command_parameters.len() > 0 {
-            message.push_str(" ");
-
-            // a little dance to stick the last param behind a colon to ensure that params with
-            // spaces work correctly (e.g. messages)
-            let mut params = self
-                .command_parameters
-                .drain(0..self.command_parameters.len() - 1)
-                .collect::<Vec<&str>>();
-            let last_param = format!(":{}", self.command_parameters.pop().unwrap());
-            params.push(last_param.as_str());
-
-            message.push_str(params.join(" ").as_str());
-        }
-
-        message.push_str("\r\n");
-
-        message
-    }
 }
 
 #[cfg(test)]

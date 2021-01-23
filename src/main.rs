@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
                         replies.push(structs::Reply::RPL_YOURHOST {
                             nick: "nick".to_owned(),
-                            server_name: &config.irc.hostname,
+                            server_name: config.irc.hostname.clone(),
                             version: "0.1.0".to_owned(),
                         });
                     }
